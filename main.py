@@ -3,8 +3,8 @@ from rag.embed import embedder
 from rag.vectordb import vectordatabase
 from rag.retrieve_info import retriever
 from rag.res_llm import get_resp
-from rag.entity_store import build_entity_vocab
-from rag.fuzzy import FuzzyMatcher
+from rag.typo_match import build_entity_vocab
+from rag.typo_matcher import FuzzyMatcher
 
 def pipeline():
 
