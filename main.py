@@ -3,8 +3,12 @@ from rag.embed import embedder
 from rag.vectordb import vectordatabase
 from rag.retrieve_info import retriever
 from rag.res_llm import get_resp
+from rag.entity_store import build_entity_vocab
+from rag.fuzzy import FuzzyMatcher
 
 def pipeline():
+
+    
     print("Extracting data from input csv!....")
     texts=extract_csv("data/water_bodies_data.csv")
 
@@ -26,9 +30,16 @@ def pipeline():
     vectdb.add(embeddings, texts)
     print("Vectors stored in FAISS:", vectdb.index.ntotal)
 
-    retriever_obj=retriever(vectdb, embedder_obj)
+    print("Building entity vocabulary...")
+    vocab=build_entity_vocab("data/water_bodies_data.csv")
+    fuzzy_matcher=FuzzyMatcher(vocab)
+
+    retriever_obj=retriever(vectdb, embedder_obj, fuzzy_matcher)
 
     return retriever_obj
+
+    
+
 
 def main():
     
