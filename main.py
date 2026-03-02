@@ -4,6 +4,8 @@ from rag.retrieve_info import retriever
 from rag.res_llm import get_resp
 from rag.extract import build_entity_vocab_from_csv,extract_csv
 from rag.typo_matcher import FuzzyMatcher
+from rag.kg_loader import load_kgraph
+from rag.kg_retriever import KGRetriever
 
 def pipeline():
 
@@ -35,7 +37,11 @@ def pipeline():
 
     retriever_obj=retriever(vectdb, embedder_obj, fuzzy_matcher)
 
-    return retriever_obj
+    print("\nLoading Knowledge Graph...")
+    triples = load_kgraph("rag/kgraph.json")
+    kg_retriever = KGRetriever(triples)
+
+    return retriever_obj,fuzzy_matcher,kg_retriever
 
     
 
@@ -44,7 +50,7 @@ def main():
     
 
     print("Initializing RAG GIS chatbot...\n")
-    retriever_obj=pipeline()
+    retriever_obj, fuzzy_matcher, kg_retriever=pipeline()
 
     print("\nASK UR QUERIES!! \nType 'exit' to quit.\n")
 
@@ -53,8 +59,15 @@ def main():
         if question.lower()=="exit":
             print("BBYE!")
             break
-
-        context=retriever_obj.retrieve(question)
+    #FAISS RETRIEVAL
+        faiss_context=retriever_obj.retrieve(question)
+    #KG RETRIEVAL    
+        entities=kg_retriever.search(question)
+        filtered=kg_retriever.filter_by_location(entities, "bhilwara")
+        kg_context=filtered
+    #MERGING BOTH for best results    
+        context=faiss_context+kg_context
+        
         answer=get_resp(context,question)
         print("\nBot:",answer,"\n")
 
