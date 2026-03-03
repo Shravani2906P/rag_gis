@@ -93,8 +93,11 @@ class KGRetriever:
 
         if not start_nodes and not size_filter:
             return []
-
-        results=self.generic_traverse(start_nodes,max_depth=2)
+        
+        if start_nodes:
+            results=self.generic_traverse(start_nodes,max_depth=2)
+        else:
+            results=list(self.capacity_class.keys())
 
         entity_nodes=[]
         for node in results:

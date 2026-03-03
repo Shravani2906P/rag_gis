@@ -71,13 +71,13 @@ def main():
     #MERGING BOTH for best results    
         context=faiss_context+kg_context
         
-        # answer=get_resp(context,corrected)
-        # print("\nBot:",answer,"\n")
-        print("\n--- KG UNIT TEST ---")
-        print("Test irrigation:", kg_retriever.dynamic_search("irrigation"))
-        print("Test large:", kg_retriever.dynamic_search("large"))
-        print("Test small:", kg_retriever.dynamic_search("small"))
-        print("--------------------\n")
+        answer=get_resp(context,corrected)
+        print("\nBot:",answer,"\n")
+        # print("\n--- KG UNIT TEST ---")
+        # print("Test irrigation:", kg_retriever.dynamic_search("irrigation"))
+        # print("Test large:", kg_retriever.dynamic_search("large"))
+        # print("Test small:", kg_retriever.dynamic_search("small"))
+        # print("--------------------\n")
 
 if __name__ == "__main__":
     main()
