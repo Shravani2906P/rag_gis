@@ -4,7 +4,7 @@ class retriever:
         self.embedder=embedder
         self.fuzzy=fuzzy_matcher
 
-    def retrieve(self, ques, k=20):
+    def retrieve(self, ques, k=8):
 
         #original query
         original_embed=self.embedder.embedtext([ques])

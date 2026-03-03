@@ -1,69 +1,60 @@
-import re
-
 class KGRetriever:
 
-    SIZE_SYNONYMS={
-        "large":[
-            "large","big","huge","massive","major",
-            "high","high-capacity","heavy","significant",
-            "substantial","extensive","grand"
-        ],
-        "medium":[
-            "medium","moderate","mid","mid-size",
-            "average","standard","normal"
-        ],
-        "small":[
-            "small","minor","low","low-capacity",
-            "limited","tiny","mini","compact"
-        ]
-    }
-
-    def __init__(self,triples):
+    def __init__(self, triples, embedder_obj):
         self.triples=triples
+        self.embedder=embedder_obj
+
         self.graph={}
         self.reverse_graph={}
-        self.capacity_class={}
-        self.size_lookup={}
+        self.nodes=set()
+
+        self.capacity_map={}
+        self.type_map={}
+        self.purpose_map={}
 
         for s,r,o in triples:
-            self.graph.setdefault(s.lower(),[]).append((r,o.lower()))
-            self.reverse_graph.setdefault(o.lower(),[]).append((r,s.lower()))
+            s=s.lower()
+            o=o.lower()
+
+            self.graph.setdefault(s,[]).append((r,o))
+            self.reverse_graph.setdefault(o,[]).append((r,s))
+
+            self.nodes.add(s)
+            self.nodes.add(o)
 
             if r=="has_capacity":
                 try:
-                    value=int(o.lower().split("m")[0])
-                    if value>=250:
-                        self.capacity_class[s.lower()]="large"
-                    elif value>=100:
-                        self.capacity_class[s.lower()]="medium"
-                    else:
-                        self.capacity_class[s.lower()]="small"
+                    value=int(o.split("m")[0])
+                    self.capacity_map[s]=value
                 except:
                     pass
-
-        for size_class,synonyms in self.SIZE_SYNONYMS.items():
-            for word in synonyms:
-                self.size_lookup[word]=size_class
-
-
-    def extract_query_nodes(self,query):
-        words=re.findall(r'\b\w+\b',query.lower())
-        nodes=[]
-        for word in words:
-            if word in self.graph or word in self.reverse_graph:
-                nodes.append(word)
-        return nodes
+            if r=="is_a":
+                self.type_map[s]=o
+            if r=="supports":
+                self.purpose_map.setdefault(s,[]).append(o)    
 
 
-    def detect_size(self,query):
-        words=re.findall(r'\b\w+\b',query.lower())
-        for word in words:
-            if word in self.size_lookup:
-                return self.size_lookup[word]
-        return None
+        self.node_list=list(self.nodes)
+        self.node_embeddings=self.embedder.embedtext(self.node_list)
+
+
+    def semantic_node_match(self,query,top_k=5):
+
+        query_embedding=self.embedder.embedtext([query])[0]
+
+        scores=[]
+
+        for i,node_emb in enumerate(self.node_embeddings):
+            score=sum(a*b for a,b in zip(query_embedding,node_emb))
+            scores.append((score,self.node_list[i]))
+
+        scores.sort(reverse=True)
+
+        return [node for _,node in scores[:top_k]]
 
 
     def generic_traverse(self,start_nodes,max_depth=2):
+
         visited=set()
         results=set()
 
@@ -72,6 +63,7 @@ class KGRetriever:
                 return
             if node in visited:
                 return
+
             visited.add(node)
             results.add(node)
 
@@ -88,24 +80,18 @@ class KGRetriever:
 
 
     def dynamic_search(self,query):
-        size_filter=self.detect_size(query)
-        start_nodes=self.extract_query_nodes(query)
 
-        if not start_nodes and not size_filter:
-            return []
-        
-        if start_nodes:
-            results=self.generic_traverse(start_nodes,max_depth=2)
-        else:
-            results=list(self.capacity_class.keys())
+        matched_nodes=self.semantic_node_match(query,top_k=5)
+
+        results=self.generic_traverse(matched_nodes,max_depth=2)
 
         entity_nodes=[]
+
         for node in results:
-            if node in self.capacity_class:
-                if size_filter:
-                    if self.capacity_class[node]==size_filter:
+            if node in self.graph:
+                for r,o in self.graph[node]:
+                    if r=="is_a":
                         entity_nodes.append(node)
-                else:
-                    entity_nodes.append(node)
+                        break
 
         return entity_nodes

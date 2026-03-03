@@ -13,6 +13,11 @@ def pipeline():
     print("Extracting data from input csv!....")
     texts=extract_csv("data/water_bodies_data.csv")
 
+    entity_text_map={}
+    for text in texts:
+        name=text.split(" is ")[0].lower()
+        entity_text_map[name]=text
+
     print("Chunking works!!")
     for i,chunk in enumerate(texts):
         print("\n---Chunk",i+1,"---")
@@ -39,43 +44,51 @@ def pipeline():
 
     print("\nLoading Knowledge Graph...")
     triples=load_kgraph("rag/kgraph.json")
-    kg_retriever=KGRetriever(triples)
+    kg_retriever=KGRetriever(triples,embedder_obj)
 
-    return retriever_obj,fuzzy_matcher,kg_retriever
+    return retriever_obj,fuzzy_matcher,kg_retriever,entity_text_map
 
     
 
 
 def main():
-    
 
     print("Initializing RAG GIS chatbot...\n")
-    retriever_obj, fuzzy_matcher, kg_retriever=pipeline()
+    retriever_obj, fuzzy_matcher, kg_retriever,entity_text_map=pipeline()
 
     print("\nASK UR QUERIES!! \nType 'exit' to quit.\n")
 
     while True:
         question=input("USER: ")
+
         if question.lower()=="exit":
             print("BBYE!")
             break
 
-    #Applying typo correction    
         corrected=fuzzy_matcher.correct(question)
-        print("\nOriginal Query :",question)
-        print("Corrected Query:",corrected)
-    #FAISS RETRIEVAL
-        faiss_context=retriever_obj.retrieve(corrected)
-    #KG RETRIEVAL    
-        kg_context=kg_retriever.dynamic_search(corrected)
-    #MERGING BOTH for best results    
+
+        print("\nOriginal Query :", question)
+        print("Corrected Query:", corrected)
+
+        #kgraph based retrieval
+        kg_entities=kg_retriever.dynamic_search(corrected)
+        print("KG Entities:", kg_entities)
+
+        #faiis based retrieval
         context=[]
-        for item in faiss_context+kg_context:
-            if item not in context:
-                context.append(item)
-        
-        answer=get_resp(context,corrected)
-        print("\nBot:",answer,"\n")
+
+        for entity in kg_entities:
+           if entity in entity_text_map:
+               context.append(entity_text_map[entity])
+
+        print("FAISS Entities:", context)
+
+        if not context:
+            print("\nBot: No relevant data found.\n")
+            continue
+
+        answer=get_resp(context, corrected)
+        print("\nBot:", answer, "\n")
         # print("\n--- KG UNIT TEST ---")
         # print("Test irrigation:", kg_retriever.dynamic_search("irrigation"))
         # print("Test large:", kg_retriever.dynamic_search("large"))
