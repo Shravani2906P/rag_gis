@@ -6,33 +6,47 @@ load_dotenv()
 
 client=genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-def get_resp(context_chunks, ques):
+def get_resp(context_chunks,ques):
+
     contexts="\n".join(context_chunks)
 
     prompt=f"""
-You are a GIS water-conservation assistant.
+You are a GIS water-body assistant.
 
-Answer ONLY using the provided context.
+The context already contains the correct candidate entities.
 
-Formatting rules:
+Each line follows this format:
+Name - Type - Capacity - Purpose
 
-1. If the question asks to LIST entities:
-   Format as:
-   Name - Type - Capacity - Purpose
+Your job is to format the final answer.
 
-2. If the question asks to COMPARE entities:
-   Clearly compare their capacities numerically.
-   State which is larger/smaller.
+Rules:
 
-3. If the question asks for TOP / LARGEST / SMALLEST:
-   Select correctly based on capacity.
-   Format as:
-   Name - Type - Capacity
+1. If the question asks:
+   - "which one"
+   - "highest"
+   - "largest"
+   - "maximum"
+   - "top"
+   
+   → Return ONLY the entity with the **highest capacity**.
 
-4. Do not add extra explanation.
-5. Do not invent data.
-6. If no entities match, respond exactly:
-   No entities match the given criteria :(
+2. If the question asks:
+   - "smallest"
+   - "minimum"
+   - "lowest"
+
+   → Return ONLY the entity with the **lowest capacity**.
+
+3. If the question asks to **list or show entities**
+   → Return ALL entities exactly as provided.
+
+4. Do NOT invent data.
+5. Do NOT modify numbers.
+6. Only use the provided context.
+
+7. If the context is empty return exactly:
+No entities match the given criteria :(
 
 Context:
 {contexts}
@@ -40,8 +54,9 @@ Context:
 Question:
 {ques}
 """
-    response = client.models.generate_content(
-        model="gemini-1.5-flash-lite",
+
+    response=client.models.generate_content(
+        model="gemini-2.5-flash",
         contents=prompt,
     )
 

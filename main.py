@@ -6,6 +6,7 @@ from rag.extract import build_entity_vocab_from_csv,extract_csv
 from rag.typo_matcher import FuzzyMatcher
 from rag.kg_loader import load_kgraph
 from rag.kg_retriever import KGRetriever
+from rag.query_parser import extract_entity,extract_operator,capacity_filter,get_capacity,extract_type,extract_second_entity
 
 def pipeline():
 
@@ -15,7 +16,7 @@ def pipeline():
 
     entity_text_map={}
     for text in texts:
-        name=text.split(" is ")[0].lower()
+        name=text.split(" is a ")[0].lower()
         entity_text_map[name]=text
 
     print("Chunking works!!")
@@ -50,6 +51,20 @@ def pipeline():
 
     
 
+def format_context_for_llm(context):
+
+    formatted=[]
+
+    for text in context:
+
+        name=text.split(" is a ")[0]
+        type_=text.split(" is a ")[1].split(" located")[0]
+        capacity=text.split("capacity of ")[1].split(".")[0]
+        purpose=text.split(".")[-2]
+        formatted.append(f"{name} - {type_} - {capacity} - {purpose}")
+
+    return formatted
+
 
 def main():
 
@@ -70,7 +85,32 @@ def main():
         print("\nOriginal Query :", question)
         print("Corrected Query:", corrected)
 
-        #kgraph based retrieval
+        entity=extract_entity(corrected,entity_text_map.keys())
+        operator=extract_operator(corrected)
+        number=get_capacity(corrected)
+        type_filter=extract_type(corrected)
+
+        print("Detected entity   : ",entity)
+        print("Detected operator : ",operator)
+        print("Detected number   : ",number)
+        print("Detected type     : ",type_filter)
+
+
+        if(entity or number) and operator:
+            context=capacity_filter(entity,operator,entity_text_map,number)
+            print("Filtered entities : ",context)
+
+            if not context:
+                print("\nBot: No entities match the given criteria :(\n")
+                continue
+
+            context=format_context_for_llm(context)
+
+            answer=get_resp(context,corrected)
+            print("\nBot: ",answer,"\n")
+            continue
+
+        # #kgraph based retrieval
         kg_entities=kg_retriever.dynamic_search(corrected)
         print("KG Entities:", kg_entities)
 
@@ -86,7 +126,7 @@ def main():
         if not context:
             print("\nBot: No relevant data found.\n")
             continue
-
+        context=format_context_for_llm(context)
         answer=get_resp(context, corrected)
         print("\nBot:", answer, "\n")
         # print("\n--- KG UNIT TEST ---")
