@@ -6,7 +6,7 @@ from rag.extract import build_entity_vocab_from_csv,extract_csv
 from rag.typo_matcher import FuzzyMatcher
 from rag.kg_loader import load_kgraph
 from rag.kg_retriever import KGRetriever
-from rag.query_parser import extract_entity,extract_operator,capacity_filter,get_capacity,extract_type,extract_second_entity
+from rag.query_parser import extract_entity,extract_operator,capacity_filter,get_capacity,extract_type,extract_second_entity,detect_intent_of_ques
 
 def pipeline():
 
@@ -126,7 +126,30 @@ def main():
         if not context:
             print("\nBot: No relevant data found.\n")
             continue
+        
+        #checking for words like count, min,max as llm hallucinates from nums!!
+        intent_of_ques=detect_intent_of_ques(corrected)
         context=format_context_for_llm(context)
+
+        if intent_of_ques=="COUNT":
+            count=len(context)
+            print(f"Bot: There are {count} matching water bodies. Below are the details:\n")
+            for i,it in enumerate(context,start=1):
+                print(f"{i}. {it}")
+            print()
+            continue
+        if intent_of_ques=="MAX":
+            max_entity=max(context,key=lambda x:int(x.split(" - ")[2].split("M")[0]))
+            print("Bot: The required water body with the highest capacity is:\n")
+            print(max_entity)
+            print()
+            continue    
+        if intent_of_ques=="MIN":
+            min_entity=min(context,key=lambda x:int(x.split(" - ")[2].split("M")[0]))
+            print("Bot: The required water body with the lowest capacity is:\n")
+            print(min_entity)
+            print()
+            continue  
         answer=get_resp(context, corrected)
         print("\nBot:", answer, "\n")
         # print("\n--- KG UNIT TEST ---")
