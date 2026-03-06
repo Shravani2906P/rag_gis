@@ -131,6 +131,9 @@ def main():
         if not context:
             print("\nBot: No relevant data found.\n")
             continue
+#using filtering if query is rank based
+        if type_filter:
+            context=[x for x in context if f"{type_filter.capitalize()}" in x]
         
         #checking for words like count, min,max as llm hallucinates from nums!!
         intent_of_ques=detect_intent_of_ques(corrected)
