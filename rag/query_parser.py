@@ -42,10 +42,10 @@ def extract_operator(query):
     if "less than or equal" in query or "at most" in query:
         return "<="
 
-    if "greater than" in query or "larger than" in query or "bigger than" or "above" in query:
+    if ("greater than" in query or "larger than" in query or "bigger than" or "above" in query):
         return ">"
 
-    if "less than" in query or "smaller than" or "below" in query:
+    if ("less than" in query or "smaller than" or "below" in query):
         return "<"
 
     if "equal to" in query or "same as" in query:
