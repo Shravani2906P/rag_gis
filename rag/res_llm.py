@@ -7,7 +7,10 @@ load_dotenv()
 client=genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 def get_resp(context_chunks,ques):
-
+    
+    if not context_chunks:
+       return "No entities match the given criteria :("
+ 
     contexts="\n".join(context_chunks)
 
     prompt=f"""
@@ -18,7 +21,7 @@ The context already contains the correct candidate entities.
 Each line follows this format:
 Name - Type - Capacity - Purpose
 
-Your job is to format the final answer.
+Your job is to format & generate a short factual paragraph that could answer the question from the provided context only.
 
 Rules:
 

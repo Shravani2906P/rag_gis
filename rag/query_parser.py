@@ -89,3 +89,24 @@ def capacity_filter(entity, operator, entity_text_map,number=None):
     results.sort(reverse=True, key=lambda x:x[0])
 
     return [text for cap,text in results]
+
+
+def detect_intent_of_ques(query):
+    q=query.lower()
+    count_words=["how many","count","number of","total","in total"]
+    max_words=["maximum","highest","largest","top"]
+    min_words=["smallest","minimum","lowest"]
+
+    for w in count_words:
+        if w in q:
+            return "COUNT"
+
+    for w in max_words:
+        if w in q:
+            return "MAX"
+
+    for w in min_words:
+        if w in q:
+            return "MIN"
+
+    return "LIST"            
