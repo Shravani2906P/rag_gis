@@ -86,7 +86,7 @@ def main():
         print("\nOriginal Query :", question)
         print("Corrected Query:", corrected)
 
-        entity=extract_entity(corrected,entity_text_map.keys())
+        entity=extract_entity(question,entity_text_map.keys())
         operator=extract_operator(corrected)
         number=get_capacity(corrected)
         range_vals=extract_range(corrected)
@@ -134,7 +134,11 @@ def main():
             context=capacity_filter(entity, operator, entity_text_map, range_vals_given=range_vals)
 
         elif operator:
-            context=capacity_filter(entity, operator, entity_text_map, number=number)
+            filtered_map=entity_text_map
+            if type_filter:
+                filtered_map={k:v for k,v in entity_text_map.items() if type_filter in v.lower()}
+
+            context=capacity_filter(entity, operator, filtered_map, number=number)
 
             print("Filtered entities : ",context)
 
@@ -166,7 +170,7 @@ def main():
             continue
 #using filtering if query is rank based
         if type_filter:
-            context=[x for x in context if f"is a {type_filter.capitalize()}" in x]
+            context=[x for x in context if type_filter.lower() in x.lower()]
         
         #checking for words like count, min,max as llm hallucinates from nums!!
         intent_of_ques=detect_intent_of_ques(corrected)

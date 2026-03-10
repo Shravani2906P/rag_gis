@@ -6,7 +6,7 @@ def extract_entity(query, entities):
     query=query.lower()
 
     for e in entities:
-        if e in query:
+        if f" {e} " in f" {query} ":
             return e
 
     return None
@@ -21,7 +21,7 @@ def extract_second_entity(query, entities, first_entity):
 
 def extract_type(query):
 
-    types=["lake","dam","reservoir","pond","barrage"]
+    types=["lake","dam","check dam","reservoir","pond","barrage",]
     found=[]
     query=query.lower()
     for t in types:
@@ -94,7 +94,7 @@ def extract_operator(query):
 
 def get_capacity(text):
 
-    m=re.search(r'(\d+)\s*m',text.lower())
+    m=re.search(r'capacity of\s*(\d+)', text.lower())
 
     if m:
         return int(m.group(1))
@@ -125,15 +125,16 @@ def capacity_filter(entity, operator, entity_text_map,number=None,range_vals_giv
                 results.append((cap,text))
             continue    
 
-        if entity:
-            ref_capacity=get_capacity(entity_text_map[entity])
-        else:
-            ref_capacity=number
-
         if operator==">" and cap>ref_capacity:
             results.append((cap,text))
 
         elif operator=="<" and cap<ref_capacity:
+            results.append((cap,text))
+
+        elif operator==">=" and cap>=ref_capacity:
+            results.append((cap,text))
+
+        elif operator=="<=" and cap<=ref_capacity:
             results.append((cap,text))
 
         elif operator=="=" and cap==ref_capacity:
@@ -167,7 +168,7 @@ def detect_intent_of_ques(query):
 
 def extract_range(query):
 
-    nums=re.findall(r'(\d+)\s*m', query.lower())
+    nums=re.findall(r'(\d+)', query.lower())
 
     if len(nums)>=2:
         low=int(nums[0])
