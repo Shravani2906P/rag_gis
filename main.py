@@ -7,6 +7,7 @@ from rag.typo_matcher import FuzzyMatcher
 from rag.kg_loader import load_kgraph
 from rag.kg_retriever import KGRetriever
 from rag.query_parser import extract_entity,extract_operator,capacity_filter,get_capacity,extract_type,extract_second_entity,detect_intent_of_ques,extract_range,cross_type_compare
+import re
 
 def pipeline():
 
@@ -49,7 +50,6 @@ def pipeline():
 
     return retriever_obj,fuzzy_matcher,kg_retriever,entity_text_map
 
-    
 
 def format_context_for_llm(context):
 
@@ -82,6 +82,8 @@ def main():
             break
 
         corrected=fuzzy_matcher.correct(question)
+        corrected=re.sub(r'\b(storage|tank|tanks|storage-tanks)\b','',corrected.lower())
+        corrected=" ".join(dict.fromkeys(corrected.split()))
 
         print("\nOriginal Query :", question)
         print("Corrected Query:", corrected)
@@ -100,6 +102,10 @@ def main():
         print("Detected operator : ",operator)
         print("Detected number   : ",number)
         print("Detected type     : ",type_filter)
+
+        filtered_map=entity_text_map
+        if type_filter:
+            filtered_map={k:v for k,v in entity_text_map.items() if type_filter in v.lower()}
 
         if isinstance(wbody_types, list) and len(wbody_types)==2 and operator:
             type1=None
@@ -131,16 +137,7 @@ def main():
 
 
         if range_vals:
-            context=capacity_filter(entity, operator, entity_text_map, range_vals_given=range_vals)
-
-        elif operator:
-            filtered_map=entity_text_map
-            if type_filter:
-                filtered_map={k:v for k,v in entity_text_map.items() if type_filter in v.lower()}
-
-            context=capacity_filter(entity, operator, filtered_map, number=number)
-
-            print("Filtered entities : ",context)
+            context=capacity_filter(entity, operator, filtered_map, range_vals_given=range_vals)
 
             if not context:
                 print("\nBot: No entities match the given criteria :(\n")
@@ -148,8 +145,27 @@ def main():
 
             context=format_context_for_llm(context)
 
-            answer=get_resp(context,corrected)
-            print("\nBot: ",answer,"\n")
+            answer=get_resp(context, corrected)
+            print("\nBot: ", answer, "\n")
+            continue
+
+        elif operator:
+
+            context=capacity_filter(entity, operator, filtered_map, number=number)
+
+            if type_filter:
+                context=[x for x in context if type_filter.lower() in x.lower()]
+
+            print("Filtered entities : ", context)
+
+            if not context:
+                print("\nBot: No entities match the given criteria :(\n")
+                continue
+
+            context=format_context_for_llm(context)
+
+            answer=get_resp(context,"Explain the following water bodies that match the user's query.")
+            print("\nBot: ", answer, "\n")
             continue
 
         # #kgraph based retrieval
@@ -197,11 +213,6 @@ def main():
             continue   
         answer=get_resp(context, corrected)
         print("\nBot:", answer, "\n")
-        # print("\n--- KG UNIT TEST ---")
-        # print("Test irrigation:", kg_retriever.dynamic_search("irrigation"))
-        # print("Test large:", kg_retriever.dynamic_search("large"))
-        # print("Test small:", kg_retriever.dynamic_search("small"))
-        # print("--------------------\n")
 
 if __name__ == "__main__":
     main()

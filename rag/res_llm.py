@@ -14,31 +14,23 @@ def get_resp(context_chunks,ques):
     contexts="\n".join(context_chunks)
 
     prompt=f"""
-You are a helpful GIS assistant that explains information about water bodies.
+You are a helpful GIS assistant.
 
-The information below comes from a trusted dataset. Each line has this format:
+The system has already filtered the dataset according to a condition.
+The context below contains ONLY the entities that satisfy the filter.
 
-Name - Type - Capacity - Purpose
+Each line has this format:
+Name - Type - Coordinates - Capacity - Purpose
 
-Use ONLY the provided context to answer the question.
-
-Guidelines:
-
-1. Explain the result in simple language so that a normal person can understand.
-2. If multiple entities match the query, introduce them first and then list them clearly.
-3. If only one entity matches, explain why it is the result.
-4. Do not invent information that is not in the context.
-5. If the question asks for coordinates, extract them from the text and show them clearly.
-6. If no entities match the query, respond exactly with:
-   "No entities match the given conditions, try asking other ques :("
+Explain the results clearly and mention the filtering condition if provided.
 
 Context:
 {contexts}
 
-Question:
+Filter explanation:
 {ques}
 
-Answer in a clear and friendly way.
+Answer clearly.
 """
 
     response=client.models.generate_content(
