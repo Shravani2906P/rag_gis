@@ -1,22 +1,25 @@
-function Header(){
+function Header({ clearChat }) {
 
-const refreshChat = () => {
-window.location.reload()
-}
+return (
 
-return(
-
-<div className="header">
+<header className="header">
 
 <div className="logo">
-🛰️ RAG GIS Assistant
+
+<div className="logo-icon">🛰️</div>
+
+<div className="logo-text">
+<h2>RAG GIS Assistant</h2>
+<p className="logo-sub">Water Resource AI</p>
 </div>
 
-<button className="new-chat" onClick={refreshChat}>
+</div>
+
+<button className="new-chat" onClick={clearChat}>
 + New Chat
 </button>
 
-</div>
+</header>
 
 )
 
