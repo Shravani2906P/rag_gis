@@ -15,9 +15,9 @@ Ask questions about dams, lakes, reservoirs, and GIS datasets.
 
 <div className="suggestions">
 
-<button>Dams in India</button>
+<button>Dams in Bhilwara</button>
 <button>Largest reservoirs</button>
-<button>Major lakes in Gujarat</button>
+<button>Major lakes in Bhilwara</button>
 <button>Water storage statistics</button>
 
 </div>
