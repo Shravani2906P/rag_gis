@@ -6,10 +6,7 @@ return (
 
 <div className="logo">
 
-<div className="logo-icon">🛰️</div>
-
 <div className="logo-text">
-<h2>RAG GIS Assistant</h2>
 <p className="logo-sub">Water Resource AI</p>
 </div>
 

@@ -7,7 +7,7 @@ return(
 
 <div className="chat-container welcome">
 
-<h1>🛰️ RAG GIS Assistant</h1>
+<h1>RAG GIS Assistant</h1>
 
 <p>
 Ask questions about dams, lakes, reservoirs, and GIS datasets.
