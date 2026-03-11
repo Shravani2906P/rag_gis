@@ -6,7 +6,11 @@ const isUser = message.role === "user"
 
 return(
 
-<div className={`message-row ${isUser?"user":"bot"}`}>
+<div className={`message-row ${isUser ? "user" : "bot"}`}>
+
+{!isUser && (
+<div className="avatar">AI</div>
+)}
 
 <div className="message-bubble">
 
@@ -15,6 +19,10 @@ return(
 </ReactMarkdown>
 
 </div>
+
+{isUser && (
+<div className="avatar">U</div>
+)}
 
 </div>
 

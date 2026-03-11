@@ -4,7 +4,7 @@ function ChatInput({sendMessage}){
 
 const [text,setText] = useState("")
 
-const handleSend=()=>{
+const handleSend = () => {
 if(!text.trim()) return
 sendMessage(text)
 setText("")
@@ -18,7 +18,14 @@ return(
 value={text}
 onChange={(e)=>setText(e.target.value)}
 placeholder="Ask about dams, lakes, reservoirs..."
-onKeyDown={(e)=> e.key==="Enter" && handleSend()}
+onKeyDown={(e)=>{
+
+if(e.key==="Enter" && !e.shiftKey){
+e.preventDefault()
+handleSend()
+}
+
+}}
 />
 
 <button onClick={handleSend}>
