@@ -8,6 +8,10 @@ function App(){
 
 const [messages,setMessages] = useState([])
 
+const clearChat = () => {
+setMessages([])
+}
+
 const sendMessage = async(text)=>{
 
 const userMsg = {role:"user",content:text}
@@ -31,7 +35,7 @@ return(
 
 <div className="app">
 
-<Header/>
+<Header clearChat={clearChat}/>
 
 <ChatContainer messages={messages}/>
 

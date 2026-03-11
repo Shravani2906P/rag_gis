@@ -218,3 +218,48 @@ color:#8a8a8a;
 .chat-input button{
 min-width:70px;
 }
+
+.welcome{
+align-items:center;
+justify-content:center;
+text-align:center;
+}
+
+.welcome h1{
+font-size:32px;
+margin-bottom:10px;
+}
+
+.welcome p{
+color:#9aa0a6;
+margin-bottom:30px;
+}
+
+.suggestions{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:12px;
+max-width:500px;
+}
+
+.suggestions button{
+background:#1a1a1c;
+border:1px solid #2a2a2e;
+color:#ddd;
+padding:12px;
+border-radius:10px;
+cursor:pointer;
+transition:0.2s;
+}
+
+.suggestions button:hover{
+background:#2a2a2e;
+}
+
+.beta{
+font-size:12px;
+background:#2563eb;
+padding:3px 6px;
+border-radius:5px;
+margin-left:8px;
+}
