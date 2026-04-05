@@ -40,16 +40,29 @@ def ask_question(query: Query):
     if isinstance(wbody_types,list) and len(wbody_types)==1:
         type_filter=wbody_types[0]
 
+    if "all" in corrected and type_filter:
+        context=[v for v in entity_text_map.values() if f" is a {type_filter} " in v.lower()]
+        if not context:
+            return {"answer":"No entities found"}
+        context=format_context_for_llm(context)
+        answer=get_resp(context,corrected)
+        return {"answer":answer}
+
     if range_vals:
-        context = capacity_filter(entity, operator, entity_text_map, range_vals_given=range_vals)
+        context=capacity_filter(entity, operator, entity_text_map, range_vals_given=range_vals)
+        if not context:
+            return {"answer":"No entities match the criteria"}
+        context=format_context_for_llm(context)
+        answer=get_resp(context,corrected)
+        return {"answer":answer}
 
     elif operator:
-        filtered_map = entity_text_map
+        filtered_map=entity_text_map
 
         if type_filter:
-            filtered_map={k:v for k,v in entity_text_map.items() if type_filter in v.lower()}
+            filtered_map={k:v for k,v in entity_text_map.items() if f" is a {type_filter} " in v.lower()}
 
-        context = capacity_filter(entity, operator, filtered_map, number=number)
+        context=capacity_filter(entity, operator, filtered_map, number=number)
 
         if not context:
             return {"answer":"No entities match the criteria"}
@@ -59,13 +72,16 @@ def ask_question(query: Query):
 
         return {"answer":answer}
 
-    kg_entities = kg_retriever.dynamic_search(corrected)
+    kg_entities=kg_retriever.dynamic_search(corrected)
 
     context=[]
 
     for entity in kg_entities:
         if entity in entity_text_map:
             context.append(entity_text_map[entity])
+
+    if type_filter:
+        context=[x for x in context if f" is a {type_filter} " in x.lower()]
 
     if not context:
         return {"answer":"No relevant data found"}
