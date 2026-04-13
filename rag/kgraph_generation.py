@@ -46,7 +46,7 @@ class kgraphbuilder:
             self.triples.append((name, "located_in", district))
             self.triples.append((name, "has_capacity", capacity))
 
-            #reverse reships
+            #reverse relships
             self.triples.append((type_, "includes", name))
             self.triples.append((district, "contains", name))
             self.triples.append((capacity, "capacity_of", name))
