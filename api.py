@@ -35,16 +35,26 @@ print("RAG Loaded!")
 types_list=get_all_types(gov_df)
 types_map={t.lower():t for t in types_list}
 
-aliases={
-    "dam":"Pakka Check Dam",
-    "anicut":"Anicut",
-    "talab":"Talab",
-    "pond":"Farm Pond",
-    "tank":"Percolation Tank",
-    "percolation":"Percolation Tank",
-    "johad":"Johad",
-    "whs":"WHS",
-    "nalah":"Nalah"
+aliases = {
+    "dam":          "Pakka Check Dam",
+    "check dam":    "Pakka Check Dam",  # multi-word alias
+    "anicut":       "Anicut",
+     "cct": "Continuous Contour Trench (CCT)",
+    "deep cct": "Deep Continuous Contour Trench (Deep CCT)",
+    "anicuts":      "Anicut",
+    "talab":        "Talab",
+    "talabs":       "Talab",
+    "pond":         "Farm Pond",
+    "farm pond":    "Farm Pond",
+    "tank":         "Percolation Tank",
+    "percolation":  "Percolation Tank",
+    "johad":        "Johad",
+    "whs":          "WHS",
+    "water harvesting": "WHS",
+    "nalah":        "Nalah",
+    "nala":         "Nalah",
+    "khadin":       "Khadin",
+    "khadeen":      "Khadin",
 }
 
 class Query(BaseModel):
@@ -94,26 +104,27 @@ def format_rows(rows,title):
 
 def detect_intent(q):
     q=q.lower()
-    if any(w in q for w in ["compare","difference","vs"]):
-        return "compare"
-    if any(w in q for w in ["highest","maximum","max","lowest","minimum","min"]):
-        return "extreme"
-
-    if any(w in q for w in ["slope"]):
-        return "slope"
-    if any(w in q for w in ["infiltration"]):
-        return "feature"
-    if any(w in q for w in ["work","id","#"]):
-        return "lookup"
-    if any(w in q for w in ["district","village","panchayat"]):
-        return "location_filter"
-    if any(w in q for w in ["list","show","display"]):
-        return "list"
-    if any(w in q for w in ["count","total","number"]):
-        return "count"
-    if any(w in q for w in ["top","highest","largest","rank"]):
-        return "topk"
-    return "other"
+    
+    intent_patterns = {
+        "compare":       r'\b(compare|vs|versus|difference|better)\b',
+        "extreme":       r'\b(highest|lowest|maximum|minimum|max|min|most|least)\b',
+        "slope":         r'\bslope\b',
+        "infiltration":  r'\binfiltration\b',
+        "lookup":        r'\b(work id|id|sr\.?no|#)\s*\d+',
+        "suitability": r'\b(suitable|recommend|suggest|which|possible|can i build|can i make|what structure)\b',
+        "location_filter": r'\b(in|near|around|at)\s+[A-Za-z]',
+        "count":         r'\b(how many|count|total|number of)\b',
+        "list":          r'\b(list|show|display|give me all)\b',
+        "topk":          r'\btop\s*\d+\b',
+        "feature_info":  r'\b(what is|tell me about|specs|specifications|features of)\b',
+        "coordinates":   r'\b(coordinates?|location|where is|lat|lon)\b',
+    }
+    
+    for intent, pattern in intent_patterns.items():
+        if re.search(pattern, q):
+            return intent
+    
+    return "general"
 
 @app.post("/ask")
 def ask_question(query:Query):
@@ -124,7 +135,12 @@ def ask_question(query:Query):
     words=corrected.split()
     
     lat,lon=extract_coordinates(corrected)
-    t=detect_type(corrected,types_map,aliases)
+    t=None
+    for word in corrected.split():
+        detected=detect_type(word,types_map,aliases)
+        if detected:
+            t=detected
+            break
     has_numbers=bool(re.search(r'\d',corrected))
     intent=detect_intent(corrected)
 
@@ -353,44 +369,64 @@ Explain differences in simple points:
 
         return {"answer":ai(format_rows(sorted_rows,f"Top {k} {t if t else 'Water Bodies'} by Area"),q)}
     
-    if has_numbers and not t:
-
-        site=extract_site_features(corrected)
-        best=[]
-
-        for _,r in matcher.df.iterrows():
-            ok=True
-
-            if "depth" in site:
-                if not in_range(site["depth"],str(r["Height / Depth"])):
-                    ok=False
-
-            if "area" in site:
-                if not in_range(site["area"],str(r["Area"])):
-                    ok=False
-
-            if ok:
-                best.append(r["Body Type"])
-
-        context="Suitable structures:\n"+("\n".join([f"- {b}" for b in best]) if best else "None")
-        return {"answer":ai(context,q)}
-
     if has_numbers and t:
 
         site=extract_site_features(corrected)
+        if not site:
+            return {"answer": f"Please provide valid depth/area for {t}"}
         result=matcher.check_suitability(site,t)
 
         if result is None:
             return {"answer":ai(f"No rules found for {t}",q)}
         issues=result.get("issues",[])
-        issues_text=", ".join(issues) if issues else "None"
-        context=(
-            f"Structure: {t}\n"
-            f"Depth: {site.get('depth')}\n\n"
-            f"Suitable: {result.get('suitable')}\n"
-            f"Issues: {issues_text}"
-        )
-        return {"answer":ai(context,q)}
+        if issues:
+            return {
+            "answer": f"No, {t} is not suitable → " + ", ".join(issues)
+        }
+        else:
+            return {
+            "answer": f"Yes, {t} is suitable"
+        }
+    
+    if has_numbers:
+
+        site=extract_site_features(corrected)
+        if t:
+            result=matcher.check_suitability(site,t)
+            if result is None:
+                return{"answer": f"No rules found for {t}"}
+            
+            issues=result.get("issues",[])
+            if issues:
+                return{
+                    "answer": f"No, {t} is not suitable → " + ", ".join(issues)
+                }
+            else :
+                return{
+                    "answer": f"Yes, {t} is suitable"
+                }
+            
+        else:    
+            best=[]
+
+            for _,r in matcher.df.iterrows():
+                ok=True
+
+                if "depth" in site:
+                    if not in_range(site["depth"],str(r["Height / Depth"])):
+                        ok=False
+
+                if "area" in site:
+                    if not in_range(site["area"],str(r["Area"])):
+                        ok=False
+
+                if ok:
+                    best.append(r["Body Type"])
+
+            context="Suitable structures:\n"+("\n".join([f"- {b}" for b in best]) if best else "None")
+            return {"answer":ai(context,q)}
+
+    
     
      
 
@@ -413,13 +449,21 @@ Explain differences in simple points:
         best=min(valid,key=lambda x:x["area"])
         return {"answer":ai(format_rows([best],"Smallest Water Body"),q)}
 
-    if any(w.startswith("deep") for w in words):
+    if "deep" in corrected or "depth" in corrected:
 
         rows=recommend(gov_df,t if t else "")
         valid=[r for r in rows if r.get("depth") is not None and not (isinstance(r.get("depth"),float) and math.isnan(r.get("depth")))]
 
         best=max(valid,key=lambda x:x["depth"])
-        return {"answer":ai(format_rows([best],"Deepest Water Body"),q)}
+        if "deep" in corrected:
+            rows = recommend(gov_df, t if t else "")
+            valid = [r for r in rows if r.get("depth") is not None]
+            if not valid:
+                return {"answer": "No depth data available."}
+
+            best=max(valid, key=lambda x: x["depth"])
+            return {"answer": format_rows([best], f"Deepest {t if t else 'Water Body'}")}
+        
 
     if any(w in corrected for w in ["coordinate","coordinates","lat","lon"]):
 

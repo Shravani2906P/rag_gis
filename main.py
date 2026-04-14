@@ -39,20 +39,17 @@ def get_all_types(df):
     return list(set(str(x).strip() for x in df["Work_Name"] if str(x).strip()!=""))
 
 
-def detect_type(text,types_map,aliases):
-    text=text.lower()
-    text=text.replace("anicuts","anicut")
-    text=text.replace("talabs","talab")
-
-    for a in aliases:
-        if a in text:
-            return aliases[a]
-
+def detect_type(text, types_map, aliases):
+    text = text.lower()
+    #checkin multiword aliases first
+    for alias in sorted(aliases, key=len, reverse=True):
+        if alias in text:
+            return aliases[alias]
     for k in types_map:
         if k in text:
             return types_map[k]
-
     return None
+
 
 
 def extract_site_features(query):
@@ -61,7 +58,7 @@ def extract_site_features(query):
 
     #for area extraction
     area_match = re.search(
-    r'(?:area\s*(?:is|=)?\s*)?(\d+\.?\d*)\s*(ha|hectare|hectares|m2|sqm|sq\s*m)',
+    r'(?:area\s*(?:is|=)?\s*)?(\d+\.?\d*)\s*(ha|hectare|hectares|m2|sqm|sq\s*m)?',
     q
 )
 
@@ -69,19 +66,15 @@ def extract_site_features(query):
         val=float(area_match.group(1))
         unit=area_match.group(2)
 
-        if unit in ["ha","hectare","hectares"]:
-            site["area"]=val   #keep in hectares
-
+        if unit in ["ha","hectare","hectares"] or unit is None:
+            site["area"]=val   # assume hectares
         elif unit in ["m2","sqm","sq m"]:
-            site["area"]=val/10000   #convert into hectares
-
-        else:
-            site["area"]=val
+            site["area"]=val/10000
 
 
     #for depth 
     depth_match = re.search(
-    r'(?:depth\s*(?:is|=)?\s*)?(\d+\.?\d*)\s*(m|meter|meters)',
+    r'(?:depth\s*(?:is|=)?\s*)?(\d+\.?\d*)\s*(cm|m|meter|meters)',
     q
 )
 
@@ -92,10 +85,10 @@ def extract_site_features(query):
         val=float(depth_match.group(1))
         unit=depth_match.group(2)
 
-        if unit in ["ha","hectare","hectares"]:
-            return {"error":"Depth cannot be in hectares"}
+        if unit == "cm":
+            val=val/100   # convertto si
 
-        site["depth"]=val
+        site["depth"] = val
 
 
     return site
