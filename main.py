@@ -15,6 +15,7 @@ from rag.feature_matcher import FeatureMatcher
 
 #loaddata
 gov_df=pd.read_csv("data/govt.csv")
+final_df=pd.read_csv("data/FINAL_WATER_BODIES.csv")
 
 # clean text columns
 for col in ["Work_Name","Activity","Village","Panchayat"]:
@@ -112,20 +113,29 @@ def find_nearest_location(lat,lon):
 
     return best
 
-def in_range(value, text):
-    import re
+def in_range(val, rule):
 
-    nums=re.findall(r'\d+\.?\d*', text)
+    rule = str(rule)
 
-    if len(nums)>=2:
-        low=float(nums[0])
-        high=float(nums[1])
-        return low<=value<=high
+    nums = re.findall(r'\d+\.?\d*', rule)
+    if not nums:
+        return True
 
-    elif len(nums) == 1:
-        return value == float(nums[0])
+    nums = [float(n) for n in nums]
 
-    return True
+    # case: <1–2
+    if "<" in rule:
+        return val <= max(nums)
+
+    # case: >12.7
+    if ">" in rule:
+        return val >= min(nums)
+
+    # case: 1–2
+    if len(nums) == 2:
+        return nums[0] <= val <= nums[1]
+
+    return val == nums[0]
 
 
 def recommend(df,t):
@@ -138,14 +148,21 @@ def recommend(df,t):
 
         name=r["Work_Name"]
         activity=r["Activity"]
+        area=None
+        min_d=999999
 
+        for _,f in final_df.iterrows():
+            d=(f["avg_lat"]-r["Latitude"])**2+(f["avg_lon"]-r["Longitude"])**2
+            if d<min_d:
+                min_d=d
+                area=f["area_m2"]
         if not t or t in name or t in activity:
             results.append({
                 "village":r["Village"],
                 "panchayat":r["Panchayat"],
                 "lat":r["Latitude"],
                 "lon":r["Longitude"],
-                "area":r["Ar"],
+                "area":area,
                 "depth":r["Depth"],
                 "type":r["Work_Name"] 
             })
