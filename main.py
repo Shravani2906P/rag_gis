@@ -1,3 +1,7 @@
+import pandas as pd
+import re
+import math
+
 from rag.embed import embedder
 from rag.vectordb import vectordatabase
 from rag.retrieve_info import retriever
@@ -6,213 +10,526 @@ from rag.extract import build_entity_vocab_from_csv,extract_csv
 from rag.typo_matcher import FuzzyMatcher
 from rag.kg_loader import load_kgraph
 from rag.kg_retriever import KGRetriever
-from rag.query_parser import extract_entity,extract_operator,capacity_filter,get_capacity,extract_type,extract_second_entity,detect_intent_of_ques,extract_range,cross_type_compare
-import re
+from rag.feature_matcher import FeatureMatcher
+
+
+#loaddata
+gov_df=pd.read_csv("data/govt.csv")
+
+# clean text columns
+for col in ["Work_Name","Activity","Village","Panchayat"]:
+    gov_df[col]=gov_df[col].astype(str).str.strip().str.lower()
+
+
+
+def respond(context,q):
+    resp=get_resp(context,q)
+    print("\nBot:",resp,"\n")
+
+
+def extract_coordinates(query):
+    matches=re.findall(r'\b\d{1,2}\.\d+\b',query)
+    if len(matches)>=2:
+        return float(matches[0]),float(matches[1])
+    return None,None
+
+
+def get_all_types(df):
+    return list(set(str(x).strip() for x in df["Work_Name"] if str(x).strip()!=""))
+
+
+def detect_type(text,types_map,aliases):
+    text=text.lower()
+    text=text.replace("anicuts","anicut")
+    text=text.replace("talabs","talab")
+
+    for a in aliases:
+        if a in text:
+            return aliases[a]
+
+    for k in types_map:
+        if k in text:
+            return types_map[k]
+
+    return None
+
+
+def extract_site_features(query):
+    site={}
+    q=query.lower()
+
+    #for area extraction
+    area_match = re.search(
+    r'(?:area\s*(?:is|=)?\s*)?(\d+\.?\d*)\s*(ha|hectare|hectares|m2|sqm|sq\s*m)',
+    q
+)
+
+    if area_match:
+        val=float(area_match.group(1))
+        unit=area_match.group(2)
+
+        if unit in ["ha","hectare","hectares"]:
+            site["area"]=val   #keep in hectares
+
+        elif unit in ["m2","sqm","sq m"]:
+            site["area"]=val/10000   #convert into hectares
+
+        else:
+            site["area"]=val
+
+
+    #for depth 
+    depth_match = re.search(
+    r'(?:depth\s*(?:is|=)?\s*)?(\d+\.?\d*)\s*(m|meter|meters)',
+    q
+)
+
+    if not depth_match:
+        depth_match=re.search(r'(\d+\.?\d*)\s*(m|meter|meters)',q)
+
+    if depth_match:
+        val=float(depth_match.group(1))
+        unit=depth_match.group(2)
+
+        if unit in ["ha","hectare","hectares"]:
+            return {"error":"Depth cannot be in hectares"}
+
+        site["depth"]=val
+
+
+    return site
+
+
+def find_nearest_location(lat,lon):
+    best=None
+    min_d=float("inf")
+
+    for _,r in gov_df.iterrows():
+        d=math.sqrt((lat-r["Latitude"])**2+(lon-r["Longitude"])**2)
+        if d<min_d:
+            min_d=d
+            best=r
+
+    return best
+
+def in_range(value, text):
+    import re
+
+    nums=re.findall(r'\d+\.?\d*', text)
+
+    if len(nums)>=2:
+        low=float(nums[0])
+        high=float(nums[1])
+        return low<=value<=high
+
+    elif len(nums) == 1:
+        return value == float(nums[0])
+
+    return True
+
+
+def recommend(df,t):
+
+    results=[]
+
+    t=t.lower().strip() if t else ""
+
+    for _,r in df.iterrows():
+
+        name=r["Work_Name"]
+        activity=r["Activity"]
+
+        if not t or t in name or t in activity:
+            results.append({
+                "village":r["Village"],
+                "panchayat":r["Panchayat"],
+                "lat":r["Latitude"],
+                "lon":r["Longitude"],
+                "area":r["Ar"],
+                "depth":r["Depth"],
+                "type":r["Work_Name"] 
+            })
+
+    return results
+
+
+def build_context(rows,t):
+
+    if not rows:
+        return "No data available."
+
+    lines=[f"Water structures of type {t}:"]
+
+    for r in rows:
+        line=f"{r['type']} at {r['village']} ({r['panchayat']}) located at {r['lat']},{r['lon']}"
+
+        if r.get("area"):
+            line+=f", area {r['area']} sq meters"
+        if r.get("depth"):
+            line+=f", depth {r['depth']} meters"
+
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
 
 def pipeline():
 
-    
-    print("Extracting data from input csv!....")
-    texts=extract_csv("data/water_bodies_data.csv")
+    texts=extract_csv("data/govt.csv")
 
-    entity_text_map={}
-    for text in texts:
-        name=text.split(" is a ")[0].lower()
-        entity_text_map[name]=text
+    emb=embedder()
+    embeddings=emb.embedtext(texts)
 
-    print("Chunking works!!")
-    for i,chunk in enumerate(texts):
-        print("\n---Chunk",i+1,"---")
-        print(chunk)
+    db=vectordatabase(len(embeddings[0]))
+    db.add(embeddings,texts)
 
-   
+    vocab=build_entity_vocab_from_csv("data/govt.csv")
+    fuzzy=FuzzyMatcher(vocab)
 
-    print("Building EMBEDDINGS....")
-    embedder_obj=embedder()
-    embeddings=embedder_obj.embedtext(texts)
+    retr=retriever(db,emb,fuzzy)
 
-    print("Embedding shape:", len(embeddings), "x", len(embeddings[0]))
-    print("First embedding vector:\n", embeddings[0])
-    print("Forming TEXT VECTORS.... ")
-    vectdb=vectordatabase(dimension=len(embeddings[0]))
-    vectdb.add(embeddings, texts)
-    print("Vectors stored in FAISS:", vectdb.index.ntotal)
-
-    print("Building entity vocabulary...")
-    vocab=build_entity_vocab_from_csv("data/water_bodies_data.csv")
-    fuzzy_matcher=FuzzyMatcher(vocab)
-
-    retriever_obj=retriever(vectdb, embedder_obj, fuzzy_matcher)
-
-    print("\nLoading Knowledge Graph...")
     triples=load_kgraph("rag/kgraph.json")
-    kg_retriever=KGRetriever(triples,embedder_obj)
+    kg=KGRetriever(triples,emb)
 
-    return retriever_obj,fuzzy_matcher,kg_retriever,entity_text_map
+    matcher=FeatureMatcher("data/features.csv")
 
-
-def format_context_for_llm(context):
-
-    formatted=[]
-
-    for text in context:
-
-        name=text.split(" is a ")[0]
-        type_=text.split(" is a ")[1].split(" located")[0]
-        coords=text.split("coordinates ")[1].split(")")[0]+")"
-        capacity=text.split("capacity of ")[1].split(".")[0]
-        purpose=text.split(".")[-2]
-        formatted.append(f"{name} - {type_} - {coords} -  {capacity} - {purpose}")
-
-    return formatted
+    return retr,fuzzy,kg,matcher
 
 
 def main():
 
-    print("Initializing RAG GIS chatbot...\n")
-    retriever_obj, fuzzy_matcher, kg_retriever,entity_text_map=pipeline()
+    print("System Ready\n")
 
-    print("\nASK UR QUERIES!! \nType 'exit' to quit.\n")
+    retr,fuzzy,kg,matcher=pipeline()
+
+    types_list=get_all_types(gov_df)
+    types_map={t.lower():t for t in types_list}
+
+    aliases={
+        "dam":"Pakka Check Dam",
+        "anicut":"Anicut",
+        "talab":"Talab",
+        "pond":"Farm Pond",
+        "tank":"Percolation Tank",
+        "percolation":"Percolation Tank",
+        "whs":"WHS",
+        "nalah":"Nalah"
+    }
+
+    last_results=None
+    last_type=None
 
     while True:
-        question=input("USER: ")
 
-        if question.lower()=="exit":
-            print("BBYE!")
+        q=input("USER: ")
+        if q.lower()=="exit":
             break
 
-        corrected=fuzzy_matcher.correct(question)
-        corrected=re.sub(r'\b(storage|tank|tanks|storage-tanks)\b','',corrected.lower())
-        corrected=" ".join(dict.fromkeys(corrected.split()))
+        corrected=fuzzy.correct(q.lower())
+        print("\nCorrected:",corrected)
 
-        print("\nOriginal Query :", question)
-        print("Corrected Query:", corrected)
+        lat,lon=extract_coordinates(corrected)
+        t=detect_type(corrected,types_map,aliases)
+        has_numbers=bool(re.search(r'\d',corrected))
 
-        entity=extract_entity(question,entity_text_map.keys())
-        operator=extract_operator(corrected)
-        number=get_capacity(corrected)
-        range_vals=extract_range(corrected)
-        wbody_types=extract_type(corrected)
-        print("Extracted water bodies from query : ",wbody_types)
-        type_filter=None
-        if isinstance(wbody_types,list) and len(wbody_types)==1:
-            type_filter=wbody_types[0]
 
-        print("Detected entity   : ",entity)
-        print("Detected operator : ",operator)
-        print("Detected number   : ",number)
-        print("Detected type     : ",type_filter)
 
-        filtered_map=entity_text_map
-        if type_filter:
-            filtered_map={k:v for k,v in entity_text_map.items() if type_filter in v.lower()}
-
-        if isinstance(wbody_types, list) and len(wbody_types)==2 and operator:
-            type1=None
-            type2=None
-            if "than" in corrected:
-                parts=corrected.split("than")
-                left=parts[0]
-                right=parts[1]
-
-                for t in wbody_types:
-                    if t in left:
-                        type1=t
-                    if t in right:
-                        type2=t
+        if any(w in corrected for w in ["them","those","give all","show all"]):
+            if last_results:
+                respond([build_context(last_results,last_type)],q)
             else:
-                type1=wbody_types[0]
-                type2=wbody_types[1]
+                respond(["No previous data available"],q)
+            continue
 
-            context=cross_type_compare(type1,type2,operator,entity_text_map)
 
-            if not context:
-                print("\nBot: No entities satisfy the comparison.\n")
+        if any(w in corrected for w in ["water bodies","waterbodies","everything","all structures"]):
+            rows=recommend(gov_df,"")
+            last_results=rows
+            last_type="All Water Bodies"
+            respond([build_context(rows,"All Water Bodies")],q)
+            continue
+
+        #for large/small, etc
+        if any(w in corrected for w in ["largest","biggest","maximum","max"]):
+
+            rows = recommend(gov_df, t if t else "")
+
+            if not rows:
+                respond(["No data available."], q)
                 continue
 
-            context=format_context_for_llm(context)
-            answer=get_resp(context,corrected)
-            print("\nBot: ", answer, "\n")
-            continue
+    #ignore nan err
+            valid=[r for r in rows if str(r.get("area")) != "nan"]
 
-
-        if range_vals:
-            context=capacity_filter(entity, operator, filtered_map, range_vals_given=range_vals)
-
-            if not context:
-                print("\nBot: No entities match the given criteria :(\n")
+            if not valid:
+                respond(["No valid area data found."], q)
                 continue
 
-            context=format_context_for_llm(context)
+            best=max(valid, key=lambda x: x["area"])
 
-            answer=get_resp(context, corrected)
-            print("\nBot: ", answer, "\n")
+            context=f"""
+Largest {t if t else 'water body'}:
+
+Type: {best['type']}
+Village: {best['village']} ({best['panchayat']})
+Area: {best['area']} sq meters
+Depth: {best.get('depth')}
+Location: {best['lat']}, {best['lon']}
+"""
+
+            respond([context], q)
             continue
 
-        elif operator:
 
-            context=capacity_filter(entity, operator, filtered_map, number=number)
+        if any(w in corrected for w in ["smallest","minimum","min"]):
 
-            if type_filter:
-                context=[x for x in context if type_filter.lower() in x.lower()]
+            rows=recommend(gov_df, t if t else "")
 
-            print("Filtered entities : ", context)
+            valid=[r for r in rows if str(r.get("area")) != "nan"]
 
-            if not context:
-                print("\nBot: No entities match the given criteria :(\n")
+            if not valid:
+                respond(["No valid area data found."], q)
                 continue
 
-            context=format_context_for_llm(context)
+            best=min(valid, key=lambda x: x["area"])
 
-            answer=get_resp(context,"Explain the following water bodies that match the user's query.")
-            print("\nBot: ", answer, "\n")
+            context=f"""
+Smallest {t if t else 'water body'}:
+
+Type: {best['type']}
+Village: {best['village']} ({best['panchayat']})
+Area: {best['area']} sq meters
+"""
+
+            respond([context], q)
             continue
 
-        # #kgraph based retrieval
-        kg_entities=kg_retriever.dynamic_search(corrected)
-        print("KG Entities:", kg_entities)
 
-        #faiis based retrieval
-        context=[]
+        if any(w in corrected for w in ["deepest","maximum depth"]):
 
-        for entity in kg_entities:
-           if entity in entity_text_map:
-               context.append(entity_text_map[entity])
+            rows=recommend(gov_df, t if t else "")
 
-        print("FAISS Entities:", context)
+            valid=[r for r in rows if str(r.get("depth")) != "nan"]
 
-        if not context:
-            print("\nBot: No relevant data found.\n")
+            if not valid:
+                respond(["No valid depth data found."], q)
+                continue
+
+            best=max(valid, key=lambda x: x["depth"])
+
+            context=f"""
+Deepest {t if t else 'water body'}:
+
+Type: {best['type']}
+Village: {best['village']} ({best['panchayat']})
+Depth: {best['depth']} meters
+"""
+
+            respond([context], q)
             continue
-#using filtering if query is rank based
-        if type_filter:
-            context=[x for x in context if type_filter.lower() in x.lower()]
-        
-        #checking for words like count, min,max as llm hallucinates from nums!!
-        intent_of_ques=detect_intent_of_ques(corrected)
-        context=format_context_for_llm(context)
 
-        if intent_of_ques=="COUNT":
-            count=len(context)
-            print(f"Bot: There are {count} matching water bodies. Below are the details:\n")
-            for i,it in enumerate(context,start=1):
-                print(f"{i}. {it}")
-            print()
+
+#loc based
+        if any(w in corrected for w in ["coordinate","coordinates","location","locations","lat","lon"]):
+
+            rows=recommend(gov_df, t if t else "")
+
+            if not rows:
+                respond(["No data available."], q)
+                continue
+
+            lines=[f"Coordinates of {t if t else 'water bodies'}:\n"]
+
+            for r in rows:
+                lines.append(
+            f"{r['type']} at {r['village']} ({r['panchayat']}) → {r['lat']}, {r['lon']}"
+        )
+
+            context="\n".join(lines)
+
+            respond([context], q)
             continue
-        if intent_of_ques=="MAX":
-            topmax=sorted(context,
-                          key=lambda x:int(x.split(" - ")[3].split("M")[0]), reverse=True)[:5]
-            answer=get_resp(topmax,corrected)
-            print("\nBot: ",answer,"\n")
-            continue   
-        if intent_of_ques=="MIN":
-            topmin=sorted(context,
-                          key=lambda x:int(x.split(" - ")[3].split("M")[0]), reverse=False)[:5]
-            answer=get_resp(topmin,corrected)
-            print("\nBot: ",answer,"\n")
-            continue   
-        answer=get_resp(context, corrected)
-        print("\nBot:", answer, "\n")
 
-if __name__ == "__main__":
-    main()
+        #for all
+        if any(w in corrected for w in ["list","show","display"]):
+
+            rows=recommend(gov_df,t if t else "")
+            last_results=rows
+            last_type=t if t else "All Water Bodies"
+
+            if not rows:
+                context=f"""
+No matching {last_type} found.
+
+Available types:
+{", ".join(types_list)}
+
+Try:
+- show all anicuts
+- list talabs
+- show water bodies
+"""
+            else:
+                context=f"""
+Here are the matching results:
+
+{build_context(rows,last_type)}
+"""
+
+            respond([context],q)
+            continue
+
+
+        #count
+        if any(w in corrected for w in ["how many","count","total","number"]):
+
+            rows=recommend(gov_df,t if t else "")
+            last_results=rows
+            last_type=t if t else "All Water Bodies"
+
+            respond([f"Total {last_type}: {len(rows)}"],q)
+            continue
+
+
+        # gen reqmenrs
+        if t and not has_numbers:
+
+            for _,r in matcher.df.iterrows():
+                if r["Body Type"].lower()==t.lower():
+
+                    context=f"""
+Structure: {t}
+
+Typical specifications:
+- Area: {r['Area']}
+- Depth: {r['Height / Depth']}
+- Slope: {r['Slope']}
+"""
+
+                    respond([context],q)
+                    break
+            continue       
+
+        #coords based
+        if lat and not has_numbers:
+            row=find_nearest_location(lat,lon)
+
+            context=f"""
+Nearest structure:
+Type: {row['Work_Name']}
+Village: {row['Village']}
+Coordinates: {row['Latitude']},{row['Longitude']}
+"""
+            respond([context],q)
+            continue
+
+
+        #only numbers
+        if has_numbers and not t:
+
+            site=extract_site_features(corrected)
+
+            best=[]
+
+            for _,r in matcher.df.iterrows():
+                ok = True
+
+                if "depth" in site:
+                    if not in_range(site["depth"], str(r["Height / Depth"])):
+                        ok = False
+
+                #area checks
+                if "area" in site:
+                    if not in_range(site["area"], str(r["Area"])):
+                        ok = False
+                if ok:
+                    best.append(r["Body Type"])
+
+            if best:
+                context=f"""
+For the given conditions:
+
+- Depth: {site.get('depth')}
+- Area: {site.get('area')}
+
+The following structures are suitable:
+
+{chr(10).join(["- "+b for b in best])}
+"""
+            else:
+                context=f"""
+For the given conditions:
+
+- Depth: {site.get('depth')}
+- Area: {site.get('area')}
+
+No suitable structures found.
+"""
+
+            respond([context],q)
+            continue
+
+
+        #suits or not? type query
+        if has_numbers and t:
+
+            site=extract_site_features(corrected)
+
+            if "error" in site:
+                respond([site["error"]],q)
+                continue
+
+            #if ip is partial
+            if "area" not in site and "depth" in site:
+                context=f"""
+Structure: {t}
+
+Only depth provided: {site.get('depth')} m
+
+Depth is within acceptable range.
+
+However, area is required for full suitability analysis.
+"""
+                respond([context],q)
+                continue
+
+            if "depth" not in site and "area" in site:
+                context=f"""
+Structure: {t}
+
+Only area provided: {site.get('area')} hectares
+
+Area is within acceptable range.
+
+However, depth is required for full suitability analysis.
+"""
+                respond([context],q)
+                continue
+
+            #full checks
+            result=matcher.check_suitability(site,t)
+
+            if result is None:
+                respond([f"No rules found for {t}"],q)
+                continue
+
+            context=f"""
+Structure: {t}
+Area: {site.get('area')} hectares
+Depth: {site.get('depth')}
+
+Suitable: {result.get('suitable')}
+Reasons: {', '.join(result.get('reasons',[]))}
+Issues: {', '.join(result.get('issues',[]))}
+"""
+            respond([context],q)
+            continue
+
+        #fallbacks
+        respond(["I could not understand the query. Try asking about water bodies or structures."],q)
+
+
+
+    if __name__=="__main__":
+        main()

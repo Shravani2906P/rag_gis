@@ -1,9 +1,22 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from main import pipeline, format_context_for_llm
-from rag.query_parser import *
-from rag.res_llm import get_resp
+import re
+import math
+
+from main import (
+    pipeline,
+    gov_df,
+    extract_coordinates,
+    detect_type,
+    extract_site_features,
+    recommend,
+    find_nearest_location,
+    get_all_types,
+    in_range
+)
+
+from rag.res_llm import get_resp  # added
 
 app=FastAPI()
 
@@ -16,131 +29,195 @@ app.add_middleware(
 )
 
 print("Loading RAG pipeline...")
-retriever_obj, fuzzy_matcher, kg_retriever, entity_text_map = pipeline()
+retr, fuzzy, kg, matcher = pipeline()
 print("RAG Loaded!")
+
+types_list=get_all_types(gov_df)
+types_map={t.lower(): t for t in types_list}
+
+aliases = {
+    "dam": "Pakka Check Dam",
+    "anicut": "Anicut",
+    "talab": "Talab",
+    "pond": "Farm Pond",
+    "tank": "Percolation Tank",
+    "percolation": "Percolation Tank",
+    "whs": "WHS",
+    "nalah": "Nalah"
+}
 
 class Query(BaseModel):
     question: str
 
 
+#for better contextsd
+def ai(context,q):
+    try:
+        return get_resp([context],q)
+    except:
+        return context
+
+
+def format_rows(rows, title):
+    if not rows:
+        return "No data available."
+
+    lines=[f"{title}\n"]
+
+    for i, r in enumerate(rows, 1):
+        area=r.get("area")
+        depth=r.get("depth")
+
+        area_text=f"{area} sq meters" if area and not math.isnan(area) else "N/A"
+        depth_text=f"{depth} m" if depth and not math.isnan(depth) else "N/A"
+
+        lines.append(
+            f"{i}. {r['type'].title()}\n"
+            f"   Village: {r['village']} ({r['panchayat']})\n"
+            f"   Location: {r['lat']}, {r['lon']}\n"
+            f"   Area: {area_text}\n"
+            f"   Depth: {depth_text}"
+        )
+
+    return "\n\n".join(lines)
+
+
+def detect_intent(q):
+    q=q.lower()
+
+    if any(w in q for w in ["requirement","requirements","condition","conditions","spec"]):
+        return "conditions"
+
+    if any(w in q for w in ["list","show","display"]):
+        return "list"
+
+    if any(w in q for w in ["count","total","number"]):
+        return "count"
+
+    return "other"
+
+
 @app.post("/ask")
 def ask_question(query: Query):
 
-    question=query.question
+    q=query.question
+    corrected=fuzzy.correct(q.lower())
 
-    corrected=fuzzy_matcher.correct(question)
-    corrected=re.sub(r'\b(storage|tank|tanks|storage-tanks)\b','',corrected.lower())
-    corrected=" ".join(dict.fromkeys(corrected.split()))
+    words=corrected.split()
 
-    entity=extract_entity(question, entity_text_map.keys())
-    operator=extract_operator(corrected)
-    number=get_capacity(corrected)
-    range_vals=extract_range(corrected)
-    wbody_types=extract_type(corrected)
+    lat, lon=extract_coordinates(corrected)
+    t=detect_type(corrected, types_map, aliases)
+    has_numbers=bool(re.search(r'\d', corrected))
+    intent=detect_intent(corrected)
 
-    type_filter=None
-    if isinstance(wbody_types, list) and len(wbody_types) == 1:
-        type_filter = wbody_types[0]
+    if has_numbers and not t:
 
-    #cross type queries
-    if isinstance(wbody_types, list) and len(wbody_types) == 2 and operator:
-        type1, type2 = None, None
+        site=extract_site_features(corrected)
+        best=[]
 
-        if "than" in corrected:
-            parts=corrected.split("than")
-            left, right = parts[0], parts[1]
+        for _, r in matcher.df.iterrows():
+            ok=True
 
-            for t in wbody_types:
-                if t in left:
-                    type1 = t
-                if t in right:
-                    type2 = t
-        else:
-            type1, type2 = wbody_types
+            if "depth" in site:
+                if not in_range(site["depth"], str(r["Height / Depth"])):
+                    ok=False
 
-        context = cross_type_compare(type1, type2, operator, entity_text_map)
+            if "area" in site:
+                if not in_range(site["area"], str(r["Area"])):
+                    ok=False
 
-        if not context:
-            return {"answer": "No entities satisfy the comparison."}
+            if ok:
+                best.append(r["Body Type"])
 
-        context = format_context_for_llm(context)
-        answer = get_resp(context, corrected)
-        return {"answer": answer}
+        context="Suitable structures:\n" + ("\n".join([f"- {b}" for b in best]) if best else "None")
+        return {"answer": ai(context,q)}
 
-    # range detector
-    if range_vals:
-        context = capacity_filter(entity, operator, entity_text_map, range_vals_given=range_vals)
+    if has_numbers and t:
 
-        if not context:
-            return {"answer": "No entities match the criteria"}
+        site=extract_site_features(corrected)
+        result=matcher.check_suitability(site, t)
 
-        context = format_context_for_llm(context)
-        answer = get_resp(context, corrected)
-        return {"answer": answer}
+        if result is None:
+            return {"answer": ai(f"No rules found for {t}",q)}
 
-    # opertor detector
-    elif operator:
-        filtered_map = entity_text_map
+        context=(
+            f"Structure: {t}\n"
+            f"Depth: {site.get('depth')}\n\n"
+            f"Suitable: {result.get('suitable')}\n"
+            f"Issues: {', '.join(result.get('issues',[]))}"
+        )
+        return {"answer": ai(context,q)}
 
-        if type_filter:
-            filtered_map = {
-                k: v for k, v in entity_text_map.items()
-                if type_filter in v.lower()
-            }
+    if any(w.startswith("larg") or w.startswith("big") or w.startswith("max") for w in words):
 
-        context = capacity_filter(entity, operator, filtered_map, number=number)
+        rows=recommend(gov_df, t if t else "")
+        valid=[r for r in rows if str(r.get("area")) != "nan"]
 
-        if not context:
-            return {"answer": "No entities match the criteria"}
+        if not valid:
+            return {"answer": ai("No valid data found.",q)}
 
-        context = format_context_for_llm(context)
-        answer = get_resp(context, "Explain the following water bodies that match the user's query.")
-        return {"answer": answer}
+        best=max(valid, key=lambda x: x["area"])
+        return {"answer": ai(format_rows([best], "Largest Water Body"),q)}
 
-    #kg retrveal
-    kg_entities = kg_retriever.dynamic_search(corrected)
+    if any(w.startswith("small") or w.startswith("min") for w in words):
 
-    context = []
-    for entity in kg_entities:
-        if entity in entity_text_map:
-            context.append(entity_text_map[entity])
+        rows=recommend(gov_df, t if t else "")
+        valid=[r for r in rows if str(r.get("area")) != "nan"]
 
-    if not context:
-        return {"answer": "No relevant data found"}
+        best=min(valid, key=lambda x: x["area"])
+        return {"answer": ai(format_rows([best], "Smallest Water Body"),q)}
 
-    if type_filter:
-        context = [x for x in context if type_filter in x.lower()]
+    if any(w.startswith("deep") for w in words):
 
- #intent detection
-    intent=detect_intent_of_ques(corrected)
+        rows=recommend(gov_df, t if t else "")
+        valid=[r for r in rows if str(r.get("depth")) != "nan"]
 
-    context=format_context_for_llm(context)
+        best=max(valid, key=lambda x: x["depth"])
+        return {"answer": ai(format_rows([best], "Deepest Water Body"),q)}
 
-    if intent=="COUNT":
-        return {
-            "answer": f"There are {len(context)} matching water bodies.",
-            "data": context
-        }
+    if any(w in corrected for w in ["coordinate","coordinates","location","locations","lat","lon"]):
 
-    if intent=="MAX":
-        topmax = sorted(
-            context,
-            key=lambda x: int(x.split(" - ")[3].split("M")[0]),
-            reverse=True
-        )[:5]
+        rows=recommend(gov_df, t if t else "")
 
-        answer=get_resp(topmax, corrected)
-        return {"answer": answer}
+        lines=[f"Coordinates of {t if t else 'water bodies'}:\n"]
 
-    if intent=="MIN":
-        topmin=sorted(
-            context,
-            key=lambda x: int(x.split(" - ")[3].split("M")[0])
-        )[:5]
+        for r in rows:
+            lines.append(f"{r['type']} ({r['village']}) → {r['lat']}, {r['lon']}")
 
-        answer=get_resp(topmin, corrected)
-        return {"answer": answer}
+        return {"answer": ai("\n".join(lines),q)}
 
-  
-    answer=get_resp(context, corrected)
-    return {"answer": answer}
+    if intent == "conditions" and t:
+
+        for _, r in matcher.df.iterrows():
+            if r["Body Type"].lower() == t.lower():
+                context = (
+                    f"Structure: {t}\n"
+                    f"Area: {r['Area']}\n"
+                    f"Depth: {r['Height / Depth']}\n"
+                    f"Slope: {r['Slope']}"
+                )
+                return {"answer": ai(context,q)}
+
+    if intent == "list":
+        rows = recommend(gov_df, t if t else "")
+        return {"answer": ai(format_rows(rows, f"{t if t else 'All Water Bodies'}"),q)}
+
+    if intent == "count":
+        rows = recommend(gov_df, t if t else "")
+        return {"answer": ai(f"Total: {len(rows)}",q)}
+
+    if lat and not has_numbers:
+        row=find_nearest_location(lat, lon)
+
+        context=(
+            f"Nearest structure:\n"
+            f"{row['Work_Name']} at {row['Village']}\n"
+            f"{row['Latitude']}, {row['Longitude']}"
+        )
+        return {"answer": ai(context,q)}
+
+    if any(w in corrected for w in ["water bodies","everything","all structures"]):
+        rows=recommend(gov_df, "")
+        return {"answer": ai(format_rows(rows, "All Water Bodies"),q)}
+
+    return {"answer": "I could not understand the query."}

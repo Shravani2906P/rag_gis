@@ -3,18 +3,32 @@ import pandas as pd
 def extract_csv(csv_path: str):
     df=pd.read_csv(csv_path).fillna("unknown")
 
-    extracted_texts=[]
+    texts=[]
 
     for _, row in df.iterrows():
-        ex=(
-            f"{row['name']} is a {row['type']} located in {row['district']} "
-            f"at coordinates ({row['latitude']}, {row['longitude']}). "
-            f"It has a capacity of {row['capacity']}. "
-            f"{row['description']}"
-        )
-        extracted_texts.append(ex)
 
-    return extracted_texts
+        name=str(row['Village'])
+        type_=str(row['Activity'])
+        district=str(row['District'])
+
+        lat=row['Latitude']
+        lon=row['Longitude']
+
+        area=row['Ar']
+        length=row['Length']
+        depth=row['Depth']
+
+        text=(
+            f"{name} is a {type_} located in {district} "
+            f"at coordinates ({lat}, {lon}). "
+            f"It has an area of {area} square meters, "
+            f"length of {length} meters, "
+            f"and depth of {depth} meters."
+        )
+
+        texts.append(text)
+
+    return texts
 
 
 def build_entity_vocab_from_csv(csv_path):
@@ -23,8 +37,8 @@ def build_entity_vocab_from_csv(csv_path):
     vocab=set()
 
     for _, row in df.iterrows():
-        vocab.add(row['name'].lower())
-        vocab.add(row['type'].lower())
-        vocab.add(row['district'].lower())
+        vocab.add(str(row['Village']).lower())
+        vocab.add(str(row['Activity']).lower())
+        vocab.add(str(row['District']).lower())
 
     return list(vocab)

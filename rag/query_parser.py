@@ -1,6 +1,6 @@
 import re
 
-
+#extract entity
 def extract_entity(query, entities):
 
     query=query.lower()
@@ -11,146 +11,152 @@ def extract_entity(query, entities):
 
     return None
 
+
 def extract_second_entity(query, entities, first_entity):
 
+    query = query.lower()
+
     for e in entities:
-        if e in query and e!=first_entity:
+        if e in query and e != first_entity:
             return e
 
     return None
 
+
+#type extraction
 def extract_type(query):
 
-    types=["lake","dam","check dam","reservoir","pond","barrage",]
+    types = [
+        "anicut",
+        "percolation tank",
+        "talab",
+        "whs",
+        "nalah"
+    ]
+
     found=[]
     query=query.lower()
+
     for t in types:
-        if t in query or t+"s" in query:
+        if t in query or t + "s" in query:
             found.append(t)
 
     return found
 
-#cross type comparisons, like list dams smller than reservoirs
-def cross_type_compare(type1,type2,operator,entity_text_map):
+
+#extract op
+def extract_operator(query):
+
+    query=query.lower()
+
+    if any(w in query for w in ["greater than or equal", "at least"]):
+        return ">="
+
+    if any(w in query for w in ["less than or equal", "at most"]):
+        return "<="
+
+    if any(w in query for w in ["greater than", "larger than", "bigger than", "above"]):
+        return ">"
+
+    if any(w in query for w in ["less than", "smaller than", "below"]):
+        return "<"
+
+    if any(w in query for w in ["equal to", "same as", "equal"]):
+        return "="
+
+    return None
+
+
+#extract num
+def extract_number(query):
+
+    nums=re.findall(r'\d+', query)
+    return float(nums[0]) if nums else None
+
+
+def extract_range(query):
+
+    nums=re.findall(r'(\d+)', query)
+
+    if len(nums)>=2:
+        low=float(nums[0])
+        high=float(nums[1])
+        return low, high
+
+    return None
+
+
+#field detectin
+def detect_field(query):
+
+    q=query.lower()
+
+    if "depth" in q or "deep" in q:
+        return "depth"
+
+    if "length" in q or "long" in q:
+        return "length"
+
+    # default = area
+    return "area"
+
+
+#parse area
+def get_area(text):
+
+    try:
+        return float(text.split("area of ")[1].split(" square")[0])
+    except:
+        return None
+
+
+
+def cross_type_compare(type1, type2, operator, entity_text_map):
 
     type1_items=[]
     type2_items=[]
 
     for text in entity_text_map.values():
 
-        if f"is a {type1.capitalize()}" in text:
+        if f"is a {type1}" in text.lower():
             type1_items.append(text)
 
-        if f"is a {type2.capitalize()}" in text:
+        if f"is a {type2}" in text.lower():
             type2_items.append(text)
 
     results=[]
 
     for t1 in type1_items:
 
-        cap1=get_capacity(t1)
-
-        if cap1 is None:
+        a1=get_area(t1)
+        if a1 is None:
             continue
 
         for t2 in type2_items:
 
-            cap2=get_capacity(t2)
-
-            if cap2 is None:
+            a2=get_area(t2)
+            if a2 is None:
                 continue
 
-            if operator=="<" and cap1<cap2:
+            if operator == ">" and a1 > a2:
                 results.append(t1)
                 break
 
-            if operator==">" and cap1>cap2:
+            if operator == "<" and a1 < a2:
                 results.append(t1)
                 break
 
     return results
 
-def extract_operator(query):
 
-    query=query.lower()
-
-    if any(word in query for word in ["greater than or equal","at least"]):
-        return ">="
-
-    if any(word in query for word in ["less than or equal","at most"]):
-        return "<="
-
-    if any(word in query for word in ["greater than", "larger than","bigger than","above"]):
-        return ">"
-
-    if any(word in query for word in ["less than","smaller than","below"]):
-        return "<"
-
-    if any(word in query for word in ["equal to","same as","same","equal"]):
-        return "="
-
-    return None
-
-
-def get_capacity(text):
-
-    m=re.search(r'capacity of\s*(\d+)', text.lower())
-
-    if m:
-        return int(m.group(1))
-
-    return None
-
-def capacity_filter(entity, operator, entity_text_map,number=None,range_vals_given=None):
-    if entity:
-        ref_capacity=get_capacity(entity_text_map[entity])
-    else:
-        ref_capacity=number   
-
-    if ref_capacity is None and not range_vals_given:
-        return []    
-
-    results=[]
-
-    for name, text in entity_text_map.items():
-
-        cap=get_capacity(text)
-
-        if cap is None:
-            continue
-
-        if range_vals_given:
-            low,high=range_vals_given
-            if low<=cap<=high:
-                results.append((cap,text))
-            continue    
-
-        if operator==">" and cap>ref_capacity:
-            results.append((cap,text))
-
-        elif operator=="<" and cap<ref_capacity:
-            results.append((cap,text))
-
-        elif operator==">=" and cap>=ref_capacity:
-            results.append((cap,text))
-
-        elif operator=="<=" and cap<=ref_capacity:
-            results.append((cap,text))
-
-        elif operator=="=" and cap==ref_capacity:
-            results.append((cap,text))
-
-    #sorted in desc order
-    results.sort(reverse=True, key=lambda x:x[0])
-
-    return [text for cap,text in results]
-
-
+# intent detection
 def detect_intent_of_ques(query):
-    q=query.lower()
-    count_words=["how many","count","number of","total","in total"]
-    max_words=["maximum","highest","largest","top","best"]
-    min_words=["smallest","minimum","lowest"]
+
+    q = query.lower()
+
+    count_words = ["how many", "count", "number of", "total", "in total"]
+    max_words = ["maximum", "highest", "largest", "top", "best"]
+    min_words = ["smallest", "minimum", "lowest"]
 
     for w in count_words:
         if w in q:
@@ -164,14 +170,4 @@ def detect_intent_of_ques(query):
         if w in q:
             return "MIN"
 
-    return "LIST"            
-
-def extract_range(query):
-
-    nums=re.findall(r'(\d+)', query.lower())
-
-    if len(nums)>=2:
-        low=int(nums[0])
-        high=int(nums[1])
-        return low,high
-    return None
+    return "LIST"
