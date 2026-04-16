@@ -536,10 +536,57 @@ Issues: {', '.join(result.get('issues',[]))}
             respond([context],q)
             continue
 
-        #fallbacks
+
+
+       # ---------------- RULE-BASED LOGIC ENDS ----------------
+
+
+# ---------------- KG FALLBACK START ----------------
+        kg_results=kg.dynamic_search(t if t else corrected)
+
+        if kg_results:
+
+            user_site=extract_site_features(corrected)
+            responses=[]
+
+            for node in kg_results:
+                area=kg.area_map.get(node)
+                depth=kg.depth_map.get(node)
+                type_=kg.type_map.get(node)
+
+                if not type_:
+                    continue
+
+        #filter it by type
+                if t and type_ != t.lower():
+                    continue
+
+        #apply user contrints too
+                if "area" in user_site and area:
+                    if abs(area/10000-user_site["area"])>2:
+                        continue
+
+                if "depth" in user_site and depth:
+                    if abs(depth - user_site["depth"])>1:
+                        continue
+
+                responses.append(
+                f"{node} ({type_}) → area: {area} m², depth: {depth} m"
+                )
+
+        if responses:
+            respond(
+            ["No exact rule-based match found. Showing closest results from Knowledge Graph:\n\n"
+             + "\n".join(responses)],
+            q
+         )
+            continue
+
+
+
+#fallback
         respond(["I could not understand the query. Try asking about water bodies or structures."],q)
 
 
-
-    if __name__=="__main__":
-        main()
+if __name__=="__main__":
+    main()
