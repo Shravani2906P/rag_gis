@@ -37,7 +37,7 @@ types_map={t.lower():t for t in types_list}
 
 aliases = {
     "dam":          "Pakka Check Dam",
-    "check dam":    "Pakka Check Dam",  # multi-word alias
+    "check dam":    "Pakka Check Dam",  # multiword alias
     "anicut":       "Anicut",
      "cct": "Continuous Contour Trench (CCT)",
     "deep cct": "Deep Continuous Contour Trench (Deep CCT)",
@@ -163,11 +163,11 @@ def ask_question(query:Query):
                 continue
 
             if any(w in corrected for w in ["less","below"]):
-                if v < val:
+                if v<val:
                     results.append(r["Body Type"])
 
             if any(w in corrected for w in ["more","greater","above"]):
-                if v > val:
+                if v>val:
                     results.append(r["Body Type"])
 
         if not results:
@@ -195,7 +195,7 @@ def ask_question(query:Query):
 
         elif any(w in corrected for w in ["high","maximum","max"]):
             selected=values[-3:]
-            label = "High infiltration structures"
+            label="High infiltration structures"
 
         else:
             return {"answer": "Please specify high or low infiltration"}
@@ -314,7 +314,7 @@ The differnce is as follows :
                         if v is None:
                             continue
 
-                        if v > max_val:
+                        if v>max_val:
                             max_val=v
                             best=r["Body Type"]
 
@@ -322,34 +322,64 @@ The differnce is as follows :
 
     if intent=="slope":
 
-        match=re.search(r'(\d+)\s*[-–]\s*(\d+)\s*%?',corrected)
+        slope_type=None
 
-        if match:
-            q_low,q_high=float(match.group(1)),float(match.group(2))
+        if any(w in corrected for w in ["low","minimum","flat","gentle"]):
+            slope_type="low"
 
-            results=[]
+        elif any(w in corrected for w in ["high","steep","maximum"]):
+            slope_type="high"
 
-            for _,r in matcher.df.iterrows():
+        range_match=re.search(r'(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)',corrected)
+        single_match=re.search(r'(\d+\.?\d*)\s*%?',corrected)
 
-                slope_text=str(r["Slope"])
-                nums=re.findall(r'\d+\.?\d*',slope_text)
+        results=[]
 
-                if len(nums)>=2:
-                    s_low,s_high=float(nums[0]),float(nums[1])
+        for _,r in matcher.df.iterrows():
 
-                    if not (q_high<s_low or q_low>s_high):
-                        if t:
-                            if t.lower() not in r["Body Type"].lower():
-                                continue
+            slope_text=str(r["Slope"])
+            nums=re.findall(r'\d+\.?\d*',slope_text)
 
+            if not nums:
+                continue
+
+            vals=[float(n) for n in nums]
+
+        #case1 ie range input
+            if range_match:
+                q_low,q_high=float(range_match.group(1)),float(range_match.group(2))
+
+                if len(vals)>=2:
+                    s_low,s_high=vals[0],vals[1]
+
+                    if not(q_high<s_low or q_low>s_high):
                         results.append(r["Body Type"])
 
-            if not results:
-                return {"answer":ai("No structures match this slope range.",q)}
+        #case 2 ie single value input
+            elif single_match and not slope_type:
+                q_val=float(single_match.group(1))
 
-            return {"answer":ai("Suitable structures:\n"+"\n".join([f"- {r}" for r in results]),q)}
-        if not match:
-            return {"answer":ai("Provide slope like 5-15",q)}
+                if len(vals)>=2:
+                    s_low,s_high=vals[0],vals[1]
+                    if s_low<=q_val<=s_high:
+                        results.append(r["Body Type"])
+                else:
+                    if abs(vals[0]-q_val)<=2:
+                        results.append(r["Body Type"])
+
+        #case3 ie semantic
+            elif slope_type=="low":
+                if min(vals)<=2:
+                    results.append(r["Body Type"])
+
+            elif slope_type=="high":
+                if max(vals)>=5:
+                    results.append(r["Body Type"])
+
+        if results:
+            return {"answer":ai("Suitable structures:\n"+"\n".join([f"- {x}" for x in results]),q)}
+
+        return {"answer":ai("No matching structures found.Try low slope,high slope,or a value like 5%.",q)}
         
         
 
@@ -601,5 +631,65 @@ Depth: {r['Depth']}
     if any(w in corrected for w in ["water bodies","everything","all structures"]):
         rows=recommend(gov_df,"")
         return {"answer":ai(format_rows(rows,"All Water Bodies"),q)}
+
+    # ---------------- KG FALLBACK START ----------------
+    kg_results=kg.dynamic_search(t if t else corrected)
+    exact_node=re.sub(r'[^a-z0-9\s]', '', corrected).strip()
+    if exact_node in kg.nodes:
+        kg_results=[exact_node]
+    kg_results=kg_results[:5]    
+    if kg_results:
+
+        user_site=extract_site_features(corrected)
+        responses=[]
+        
+        context="Based on your query, here are some relevant water structures:\n\n"
+
+        for node in kg_results:
+            area=kg.area_map.get(node)
+            depth=kg.depth_map.get(node)
+            type_=kg.type_map.get(node)
+
+            if not type_:
+                continue
+            
+            context+=f"""
+The structure "{node.title()}" is a {type_} with an area of approximately {area} square meters and a depth of about {depth} meters.
+"""
+            #filtered it by type
+            if t and type_ != t.lower():
+                continue
+
+            
+            if "area" in user_site and area:
+                if abs(area/10000 - user_site["area"]) > 2:
+                    continue
+
+            if "depth" in user_site and depth:
+                if abs(depth - user_site["depth"]) > 1:
+                    continue
+
+            responses.append(
+                f"{node} ({type_}) → area: {area} m², depth: {depth} m"
+            )
+
+        if responses:
+            prompt=f"""
+You are an AI assistant.
+
+Explain the following water structure in a natural, human-like way.
+Do NOT list points.
+Do NOT use headings like "Key results".
+Write it as a short paragraph.
+
+Data:
+{context}
+"""
+
+        return {
+            "answer": ai(prompt, q)
+        }
+
+
 
     return {"answer":"I could not understand the query."}
