@@ -10,3 +10,16 @@ what r the requirements for a percolation tank to be bilt?
 
 high infiltration bodies??
 
+
+
+Dataset 1=geo clusters
+area_m2, lat/lon, water_body_id
+raw detected water bodies
+
+Dataset 2=actual structs
+Work_Name, Village, Ar, Depth
+real world labeled structures
+
+Dataset 3=features
+ranges, constraints
+rule base
