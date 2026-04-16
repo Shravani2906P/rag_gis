@@ -116,8 +116,8 @@ def detect_intent(q):
         "count":         r'\b(how many|count|total|number of)\b',
         "list":          r'\b(list|show|display|give me all)\b',
         "topk":          r'\btop\s*\d+\b',
-        "feature_info":  r'\b(what is|tell me about|specs|specifications|features of)\b',
-        "coordinates":   r'\b(coordinates?|location|where is|lat|lon)\b',
+        "feature_info": r'\b(what|requirements|conditions|criteria|specs|specifications|features|needed)\b',
+        "coordinates":   r'\b(coordinates?|location|lat|lon)\b',
     }
     
     for intent, pattern in intent_patterns.items():
@@ -175,6 +175,34 @@ def ask_question(query:Query):
 
         return {"answer":"Suitable structures:\n"+"\n".join([f"- {r}" for r in results])}
 
+    if "infiltration" in corrected:
+
+        values=[]
+
+        for _,r in matcher.df.iterrows():
+            v=parse_infiltration(r["Infiltration"])
+            if v is not None:
+                values.append((v, r["Body Type"]))
+
+        if not values:
+            return {"answer": "No data available"}
+
+        values.sort() 
+
+        if any(w in corrected for w in ["low","minimum","min"]):
+            selected=values[:3]
+            label="Low infiltration structures"
+
+        elif any(w in corrected for w in ["high","maximum","max"]):
+            selected=values[-3:]
+            label = "High infiltration structures"
+
+        else:
+            return {"answer": "Please specify high or low infiltration"}
+
+        return {
+            "answer": label + ":\n" + "\n".join([f"- {x[1]}" for x in selected])
+        }
     if intent=="compare":
 
         types=[]
@@ -197,15 +225,10 @@ Slope: {r['Slope']}
 Infiltration: {r['Infiltration']}
 """
             prompt=f"""
-Compare the following two structures clearly:
+The differnce is as follows :
 
 {context}
 
-Explain differences in simple points:
-- Area
-- Depth
-- Slope
-- Infiltration
 """
             return {"answer":ai(prompt,q)}
 
@@ -464,6 +487,24 @@ Explain differences in simple points:
             best=max(valid, key=lambda x: x["depth"])
             return {"answer": format_rows([best], f"Deepest {t if t else 'Water Body'}")}
         
+    if intent in ["feature_info","general"] and t:
+
+        for _,r in matcher.df.iterrows():
+            if r["Body Type"].lower()==t.lower():
+
+                context=f"""
+{t}:
+
+- Area: {r['Area']}
+- Depth: {r['Height / Depth']}
+- Slope: {r['Slope']}
+- Infiltration: {r['Infiltration']}
+
+Description:
+A {t} is a water structure used for storage, recharge, or irrigation depending on design.
+"""
+
+                return {"answer": ai(context,q)}    
 
     if any(w in corrected for w in ["coordinate","coordinates","lat","lon"]):
 
@@ -516,7 +557,7 @@ Explain differences in simple points:
     
     
 
-    if intent=="feature":
+    if intent=="feature_info":
         best=None
         max_val=0
         for _,r in matcher.df.iterrows():
@@ -552,6 +593,10 @@ Depth: {r['Depth']}
             f"{row['Latitude']}, {row['Longitude']}"
         )
         return {"answer":ai(context,q)}
+
+
+
+    
 
     if any(w in corrected for w in ["water bodies","everything","all structures"]):
         rows=recommend(gov_df,"")
