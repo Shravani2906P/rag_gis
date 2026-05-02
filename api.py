@@ -11,7 +11,6 @@ from main import (
     detect_type,
     extract_site_features,
     recommend,
-    find_nearest_location,
     get_all_types,
     in_range
 )
